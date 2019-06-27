@@ -1,0 +1,254 @@
+# Default values for rundeck.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+image:
+  repository: rundeck/rundeck
+  tag: 3.0.12
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 4440
+
+# Enable ldap for rundeck
+ldap:
+  enabled: false
+  configMap: rundeck-ldap # must be an existing configmap for ldap config
+  aclAdminGroup: None
+  aclUserGroup: None # run,read jobs in all projects
+  aclROGroup: None
+
+# Enable log persistence for jobs
+logPersistence:
+  enabled: false
+  #existingClaim:
+  size: 10Gi
+  annotations: {}
+    #helm.sh/resource-policy: "keep"
+
+# Create a virtualservice for istio
+istio:
+  enabled: false
+  applicationDns: my-rundeck.mydomain.com
+  namespace: default #leave default 
+  gateway: gateway #leave gateway
+  kubernetesClusterSuffix: cluster.local # "kubernetes" for prod cluster
+
+# Rundeck Grails URL
+grailsUrl: https://my-rundeck.mydomain.com
+
+###################
+resources:
+  limits:
+    cpu: 2
+    memory: 4Gi
+  requests:
+    cpu: 1
+    memory: 2Gi
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 50
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 50
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+postgresql:
+  ## Bitnami PostgreSQL image version
+  ## ref: https://hub.docker.com/r/bitnami/postgresql/tags/
+  ##
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: 10.7.0
+    pullPolicy: IfNotPresent
+    debug: false
+
+  ##
+  ## Init containers parameters:
+  ## volumePermissions: Change the owner of the persist volume mountpoint to RunAsUser:fsGroup
+  ##
+  volumePermissions:
+    enabled: true
+    image:
+      registry: docker.io
+      repository: bitnami/minideb
+      tag: latest
+      ## Specify a imagePullPolicy
+      ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
+      ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
+      ##
+      pullPolicy: Always
+    ## Init container Security Context
+    securityContext:
+      runAsUser: 0
+
+  ## Pod Security Context
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+  ##
+  securityContext:
+    enabled: true
+    fsGroup: 1001
+    runAsUser: 1001
+
+  replication:
+    enabled: false
+
+  ## Create a database
+  ## ref: https://github.com/bitnami/bitnami-docker-postgresql/blob/master/README.md#creating-a-database-on-first-run
+  ##
+  postgresqlDatabase: rundeck
+
+  ## PostgreSQL data dir
+  ## ref: https://github.com/bitnami/bitnami-docker-postgresql/blob/master/README.md
+  ##
+  postgresqlDataDir: /bitnami/postgresql
+
+  ## Specify extra initdb args
+  ## ref: https://github.com/bitnami/bitnami-docker-postgresql/blob/master/README.md
+  ##
+  # postgresqlInitdbArgs:
+
+  ## Specify a custom location for the PostgreSQL transaction log
+  ## ref: https://github.com/bitnami/bitnami-docker-postgresql/blob/master/README.md
+  ##
+  # postgresqlInitdbWalDir:
+
+  ## PostgreSQL password using existing secret
+  existingSecret: rundeck-postgresql
+
+  ## Mount PostgreSQL secret as a file instead of passing environment variable
+  usePasswordFile: true
+
+  ## PostgreSQL service configuration
+  service:
+    ## PosgresSQL service type
+    type: ClusterIP
+    port: 5432
+
+    ## Provide any additional annotations which may be required. This can be used to
+    annotations: {}
+    ## Set the LoadBalancer service type to internal only.
+    ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#internal-load-balancer
+    ##
+    # loadBalancerIP:
+
+  ## PostgreSQL data Persistent Volume Storage Class
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+  ##   GKE, AWS & OpenStack)
+  ##
+  persistence:
+    enabled: true
+    ## A manually managed Persistent Volume and Claim
+    ## If defined, PVC must be created manually before volume will be bound
+    # existingClaim:
+    mountPath: /bitnami/postgresql
+    # storageClass: "-"
+    accessModes:
+      - ReadWriteOnce
+    size: 8Gi
+    annotations: {}
+
+  ## updateStrategy for PostgreSQL StatefulSet and its slaves StatefulSets
+  ## ref: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#update-strategies
+  updateStrategy:
+    type: RollingUpdate
+
+  ## Configure resource requests and limits
+  ## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+  ##
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+
+  networkPolicy:
+    ## Enable creation of NetworkPolicy resources.
+    ##
+    enabled: false
+
+    ## The Policy model to apply. When set to false, only pods with the correct
+    ## client label will have network access to the port PostgreSQL is listening
+    ## on. When true, PostgreSQL will accept connections from any source
+    ## (with the correct destination port).
+    ##
+    allowExternal: true
+
+  ## Configure extra options for liveness and readiness probes
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/#configure-probes)
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  ## Configure metrics exporter
+  ##
+  metrics:
+    enabled: true
+    # resources: {}
+    service:
+      type: ClusterIP
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+      loadBalancerIP:
+    image:
+      registry: docker.io
+      repository: wrouesnel/postgres_exporter
+      tag: v0.4.7
+      pullPolicy: IfNotPresent
+      ## Optionally specify an array of imagePullSecrets.
+      ## Secrets must be manually created in the namespace.
+      ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+      ##
+      # pullSecrets:
+      #   - myRegistrKeySecretName
+
+    ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/#configure-probes)
+    ## Configure extra options for liveness and readiness probes
+    livenessProbe:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+
+    readinessProbe:
+      enabled: true
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+
+  # Define custom environment variables to pass to the image here
+  extraEnv: {}

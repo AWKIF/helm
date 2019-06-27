@@ -1,0 +1,225 @@
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ template "rundeck.fullname" . }}
+  labels:
+    app: {{ template "rundeck.name" . }}
+    chart: {{ template "rundeck.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: {{ template "rundeck.name" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "rundeck.name" . }}
+        release: {{ .Release.Name }}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.ldap.enabled }}
+          lifecycle:
+            postStart:
+              exec:
+                command: 
+                  - "/bin/sh"
+                  - "-c"
+                  - |
+                    mkdir /home/rundeck/libext &&
+                    curl -Lo /home/rundeck/libext/rundeck-slack-incoming-webhook-plugin-0.6.jar https://github.com/higanworks/rundeck-slack-incoming-webhook-plugin/releases/download/v0.6.dev/rundeck-slack-incoming-webhook-plugin-0.6.jar ;
+                    curl -Lo /home/rundeck/libext/prompush-notification-1.0.1.jar https://github.com/marceloalmeida/prompush-notification/releases/download/1.0.1/prompush-notification-1.0.1.jar ;
+                    echo "#Admin ACLs
+                    description: Admin, all access.
+                    context:
+                      project: '.*' # all projects
+                    for:
+                      resource:
+                        - allow: '*' # allow read/create all kinds
+                      adhoc:
+                        - allow: '*' # allow read/running/killing adhoc jobs
+                      job:
+                        - allow: '*' # allow read/write/delete/run/kill of all jobs
+                      node:
+                        - allow: '*' # allow read/run for all nodes
+                    by:
+                      group: {{ .Values.ldap.aclAdminGroup }}
+                    ---
+                    description: Admin, all access.
+                    context:
+                      application: 'rundeck'
+                    for:
+                      resource:
+                        - allow: '*' # allow create of projects
+                      project:
+                        - allow: '*' # allow view/admin of all projects
+                      project_acl:
+                        - allow: '*' # allow admin of all project-level ACL policies
+                      storage:
+                        - allow: '*' # allow read/create/update/delete for all /keys/* storage content
+                    by:
+                      group: {{ .Values.ldap.aclAdminGroup }}" > /home/rundeck/etc/admin.aclpolicy;
+                    echo "#Users ACLs
+                    description: 'Allow group runjob to run all jobs'
+                    for:
+                      job:
+                      - allow:
+                        - runAs
+                        - killAs
+                        - kill
+                        - run
+                        - read
+                        - scm_create
+                        - scm_update
+                        - toggle_schedule
+                        - toggle_execution
+                        match:
+                          name: '.*'
+                      node:
+                      - allow:
+                        - read
+                        - run
+                      adhoc:
+                      - deny:
+                        - read
+                        - run
+                      resource:
+                      - allow: read
+                        equals:
+                          kind: event
+                      - allow: [scm_create,scm_update,toggle_schedule,toggle_execution]
+                        equals:
+                          kind: job
+                    context:
+                      project: '.*'
+                    by:
+                      group: {{ .Values.ldap.aclUserGroup }}
+                    ---
+                    description: 'Allow'
+                    for:
+                      project:
+                      - allow: read
+                        match:
+                          name:  '.*'
+                      storage:
+                      - allow: read
+                    context:
+                      application: rundeck
+                    by:
+                      group: {{ .Values.ldap.aclUserGroup }}" > /home/rundeck/etc/user.aclpolicy;
+                    echo "#Users ACLs
+                    description: 'Allow group runjob to run all jobs'
+                    for:
+                      job:
+                      - allow:
+                        - read
+                        match:
+                          name: '.*'
+                      node:
+                      - allow:
+                        - read
+                      adhoc:
+                      - deny:
+                        - read
+                      resource:
+                      - allow: read
+                        equals:
+                          kind: event
+                    context:
+                      project: '.*'
+                    by:
+                      group: {{ .Values.ldap.aclROGroup }}
+                    ---
+                    description: 'Allow'
+                    for:
+                      project:
+                      - allow: read
+                        match:
+                          name:  '.*'
+                      storage:
+                      - allow: read
+                    context:
+                      application: rundeck
+                    by:
+                      group: {{ .Values.ldap.aclROGroup }}" > /home/rundeck/etc/ro.aclpolicy;
+          envFrom:
+          - configMapRef:
+              name: {{ .Values.ldap.configMap }}
+          {{- end }}
+          env:
+          - name: RUNDECK_DATABASE_DRIVER
+            value: org.postgresql.Driver
+          - name: RUNDECK_DATABASE_URL
+            value: "jdbc:postgresql://{{ .Release.Name }}-postgresql.{{ .Release.Namespace }}.svc.{{ .Values.istio.kubernetesClusterSuffix }}:5432/rundeck"
+          - name: RUNDECK_DATABASE_USERNAME
+            value: postgres
+          - name: RUNDECK_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.postgresql.existingSecret }}
+                key: postgresql-password
+          - name: RUNDECK_GRAILS_URL
+            value: {{ .Values.grailsUrl }}
+          ports:
+            - name: http
+              containerPort: 4440
+              protocol: TCP
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: "/"
+              port: 4440
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: 4440
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            -
+              mountPath: /home/rundeck/var/logs/rundeck
+              name: rundeck-log
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      volumes:
+      - name: rundeck-log
+      {{- if .Values.logPersistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.logPersistence.existingClaim | default (include "rundeck.fullname" .) }}
+      {{- else }}
+        emptyDir: {}
+      {{- end -}}

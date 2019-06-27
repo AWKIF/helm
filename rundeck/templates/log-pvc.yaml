@@ -1,0 +1,21 @@
+{{- if and .Values.logPersistence.enabled (not .Values.logPersistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+{{- if .Values.logPersistence.annotations }}
+  annotations:
+{{ toYaml .Values.logPersistence.annotations | indent 4 }}
+{{- end }}
+  name: {{ template "rundeck.fullname" . }}
+  labels:
+    app: {{ template "rundeck.name" . }}
+    chart: {{ template "rundeck.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: {{ .Values.logPersistence.size | quote }}
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if .Values.istio.enabled }}
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ .Release.Name }}-vs
+  namespace: {{ .Values.istio.namespace }}
+spec:
+  hosts:
+  - "{{ .Values.istio.applicationDns }}"
+  gateways:
+  - {{ .Values.istio.gateway }}
+  http:
+  - route:
+    - destination:
+        host: {{ .Release.Name }}.{{ .Release.Namespace }}.svc.{{ .Values.istio.kubernetesClusterSuffix }}
+{{- end }}
